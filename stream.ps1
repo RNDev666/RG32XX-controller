@@ -5,6 +5,7 @@
 #   .\stream.ps1                          # stream primary monitor
 #   .\stream.ps1 -WindowTitle "Celeste"   # stream a specific window (exact title)
 #   .\stream.ps1 -ListWindows             # show capturable window titles
+#   .\stream.ps1 -Fit crop                # letterbox (default) | crop | stretch
 #   .\stream.ps1 -Fps 30 -BitrateM 3 -NoInput
 #
 # Stop with Ctrl+C. Cleanup (restore GarlicOS UI) runs automatically.
@@ -13,7 +14,9 @@ param(
     [string]$WindowTitle = '',
     [int]$Fps = 60,
     [double]$BitrateM = 3,
-    [int]$DurationSec = 0,   # 0 = run until Ctrl+C
+    [ValidateSet('crop', 'letterbox', 'stretch')]
+    [string]$Fit = 'letterbox',   # how a 16:9 source maps onto the 4:3 panel
+    [int]$DurationSec = 0,    # 0 = run until Ctrl+C
     [switch]$NoInput,
     [switch]$ListWindows
 )
@@ -67,10 +70,17 @@ if ($psLine) { $uiPid = ($psLine.ToString() -split '\s+')[1] }
 # stays on gdigrab (ddagrab can only target a monitor/region, not a title).
 # The fit chain is shared; ddagrab adds hwdownload (GPU->RAM) and a trailing
 # fps filter to emit monotonic CFR timestamps the mpegts muxer needs.
-# Crop-to-fill: scale up to cover the 4:3 panel, then center-crop, trimming the
-# 16:9 source's left/right edges so the whole screen is used (no black bars).
-$fitChain = 'scale=640:480:force_original_aspect_ratio=increase,' +
-            'crop=640:480,format=yuv420p'
+# -Fit picks how a 16:9 source maps onto the 4:3 panel:
+#   crop      scale up to cover, center-crop  (fills screen, trims L/R edges)
+#   letterbox scale to fit, pad               (whole picture, bars top/bottom)
+#   stretch   scale to exactly 640x480        (fills screen, distorts aspect)
+$fitChain = switch ($Fit) {
+    'letterbox' { 'scale=640:480:force_original_aspect_ratio=decrease,' +
+                  'pad=640:480:(ow-iw)/2:(oh-ih)/2,format=yuv420p' }
+    'stretch'   { 'scale=640:480,format=yuv420p' }
+    default     { 'scale=640:480:force_original_aspect_ratio=increase,' +
+                  'crop=640:480,format=yuv420p' }
+}
 if ($WindowTitle) {
     $captureArgs = @('-f', 'gdigrab', '-framerate', $Fps, '-i', "title=$WindowTitle", '-vf', $fitChain)
 } else {
