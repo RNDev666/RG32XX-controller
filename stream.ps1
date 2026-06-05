@@ -11,7 +11,7 @@
 
 param(
     [string]$WindowTitle = '',
-    [int]$Fps = 30,
+    [int]$Fps = 60,
     [double]$BitrateM = 3,
     [int]$DurationSec = 0,   # 0 = run until Ctrl+C
     [switch]$NoInput,
@@ -62,14 +62,18 @@ $psLine = adb shell ps | Select-String '\./main' | Select-Object -First 1
 if ($psLine) { $uiPid = ($psLine.ToString() -split '\s+')[1] }
 
 # --- capture source ------------------------------------------------------
+# Monitor capture uses ddagrab (DXGI Desktop Duplication): it sustains true
+# 60fps where gdigrab tops out ~23fps capturing a full monitor. Window capture
+# stays on gdigrab (ddagrab can only target a monitor/region, not a title).
+# The scale+pad chain is shared; ddagrab adds hwdownload (GPU->RAM) and a
+# trailing fps filter to emit monotonic CFR timestamps the mpegts muxer needs.
+$padChain = 'scale=640:480:force_original_aspect_ratio=decrease,' +
+            'pad=640:480:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
 if ($WindowTitle) {
-    $grabArgs = @('-f', 'gdigrab', '-framerate', $Fps, '-i', "title=$WindowTitle")
+    $captureArgs = @('-f', 'gdigrab', '-framerate', $Fps, '-i', "title=$WindowTitle", '-vf', $padChain)
 } else {
-    Add-Type -AssemblyName System.Windows.Forms
-    $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $grabArgs = @('-f', 'gdigrab', '-framerate', $Fps,
-                  '-offset_x', $b.X, '-offset_y', $b.Y,
-                  '-video_size', "$($b.Width)x$($b.Height)", '-i', 'desktop')
+    $fc = "ddagrab=output_idx=0:framerate=${Fps}:output_fmt=bgra,hwdownload,format=bgra,$padChain,fps=$Fps[v]"
+    $captureArgs = @('-filter_complex', $fc, '-map', '[v]')
 }
 
 $procs = @()
@@ -79,10 +83,12 @@ try {
     if (-not $NoInput) { adb forward "tcp:$InputPort" "tcp:$InputPort" | Out-Null }
 
     # --- device decoder (adb shell session must stay open) ----------------
+    # PC already sends exactly 640x480, so no device-side scale (saves swscale
+    # on the weak A9); -pix_fmt still does the rgb565le conversion fbdev needs.
     $decCmd = "$DevFfmpeg -loglevel error -fflags nobuffer -flags low_delay " +
               "-probesize 32 -analyzeduration 0 -f mpegts " +
               "-i tcp://0.0.0.0:${VideoPort}?listen " +
-              "-vf scale=640:480 -pix_fmt rgb565le -f fbdev /dev/fb0"
+              "-pix_fmt rgb565le -f fbdev /dev/fb0"
     $procs += Start-Process adb -ArgumentList 'shell', $decCmd -WindowStyle Hidden -PassThru
 
     # --- device input forwarder -------------------------------------------
@@ -109,10 +115,10 @@ try {
     Write-Host "Streaming$(if ($WindowTitle) { " '$WindowTitle'" } else { ' primary monitor' }) -> RG35XX. Ctrl+C to stop." -ForegroundColor Green
     $g = [Math]::Max(2 * $Fps, 30)
     $durArgs = @(); if ($DurationSec -gt 0) { $durArgs = @('-t', $DurationSec) }
-    ffmpeg -hide_banner -loglevel warning @grabArgs @durArgs `
-        -vf "scale=640:480:force_original_aspect_ratio=decrease,pad=640:480:(ow-iw)/2:(oh-ih)/2" `
+    ffmpeg -hide_banner -loglevel warning @captureArgs @durArgs `
         -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p `
-        -b:v "${BitrateM}M" -maxrate "${BitrateM}M" -bufsize 1M -g $g `
+        -b:v "${BitrateM}M" -maxrate "${BitrateM}M" -bufsize 200k -g $g `
+        -muxdelay 0 -muxpreload 0 -flush_packets 1 `
         -f mpegts "tcp://127.0.0.1:$VideoPort"
 }
 finally {
