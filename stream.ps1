@@ -65,14 +65,16 @@ if ($psLine) { $uiPid = ($psLine.ToString() -split '\s+')[1] }
 # Monitor capture uses ddagrab (DXGI Desktop Duplication): it sustains true
 # 60fps where gdigrab tops out ~23fps capturing a full monitor. Window capture
 # stays on gdigrab (ddagrab can only target a monitor/region, not a title).
-# The scale+pad chain is shared; ddagrab adds hwdownload (GPU->RAM) and a
-# trailing fps filter to emit monotonic CFR timestamps the mpegts muxer needs.
-$padChain = 'scale=640:480:force_original_aspect_ratio=decrease,' +
-            'pad=640:480:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
+# The fit chain is shared; ddagrab adds hwdownload (GPU->RAM) and a trailing
+# fps filter to emit monotonic CFR timestamps the mpegts muxer needs.
+# Crop-to-fill: scale up to cover the 4:3 panel, then center-crop, trimming the
+# 16:9 source's left/right edges so the whole screen is used (no black bars).
+$fitChain = 'scale=640:480:force_original_aspect_ratio=increase,' +
+            'crop=640:480,format=yuv420p'
 if ($WindowTitle) {
-    $captureArgs = @('-f', 'gdigrab', '-framerate', $Fps, '-i', "title=$WindowTitle", '-vf', $padChain)
+    $captureArgs = @('-f', 'gdigrab', '-framerate', $Fps, '-i', "title=$WindowTitle", '-vf', $fitChain)
 } else {
-    $fc = "ddagrab=output_idx=0:framerate=${Fps}:output_fmt=bgra,hwdownload,format=bgra,$padChain,fps=$Fps[v]"
+    $fc = "ddagrab=output_idx=0:framerate=${Fps}:output_fmt=bgra,hwdownload,format=bgra,$fitChain,fps=$Fps[v]"
     $captureArgs = @('-filter_complex', $fc, '-map', '[v]')
 }
 
