@@ -13,9 +13,12 @@ import struct
 import sys
 import time
 
-# Captured from this device (GarlicOS RG35XX, /dev/input/event1)
+# Captured from this device (GarlicOS RG35XX, /dev/input/event1). The panel
+# is a Nintendo-style layout, so the physical A/B and X/Y labels are swapped
+# relative to the Linux BTN_A/B/X/Y codes -- map by physical label here so
+# pressing A reads as A on the PC.
 CODE_BTN = {
-    0x130: "A", 0x131: "B", 0x133: "X", 0x134: "Y",
+    0x130: "B", 0x131: "A", 0x133: "Y", 0x134: "X",
     0x136: "L1", 0x137: "R1",
     0x13A: "SELECT", 0x13B: "START", 0x13C: "MENU",
 }
