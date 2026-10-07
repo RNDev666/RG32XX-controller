@@ -61,6 +61,12 @@ Keyboard fallback mapping is in `KeyboardOut.KEYMAP` in
   and `adb shell "busybox pkill -CONT main"` (or just reboot the
   handheld).
 
+## Support
+
+If this project is useful to you, you can support my work on Ko-fi:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/rndev666)
+
 ## Device facts (discovered during setup)
 
 - Original RG35XX, GarlicOS kernel 3.10.37 (Actions GS705A, 4x
